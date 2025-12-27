@@ -18,7 +18,7 @@ A simple **habit tracking app** that gamifies your daily, weekly, and monthly ha
 ## Installation
 
 ```bash
-git clone https://github.com/your-username/habit-xp-tracker.git
+git clone https://github.com/Genius-mu/Habit.git
 cd habit-xp-tracker
 npm install
 npm start
