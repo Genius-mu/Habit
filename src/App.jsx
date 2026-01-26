@@ -1,138 +1,63 @@
-// import { useState, useEffect } from "react";
-// import Navbar from "./components/Navbar";
-// import Tabs from "./components/Tabs";
-// import Daily from "./pages/Daily";
-// import Weekly from "./pages/Weekly";
-// import Monthly from "./pages/Monthly";
-// import AddHabitModal from "./components/AddHabitModal";
-// import { useHabitsStore } from "./store/habitsStore";
-// import Stats from "./pages/Stats";
+import { useEffect, useState } from "react";
+import { motion } from "framer-motion";
 
-// function App() {
-//   const [tab, setTab] = useState("daily");
-//   const [isModalOpen, setIsModalOpen] = useState(false);
-//   const [loading, setLoading] = useState(true);
-
-//   const init = useHabitsStore((s) => s.init);
-//   const addHabit = useHabitsStore((s) => s.addHabit);
-
-//   useEffect(() => {
-//     (async () => {
-//       console.log("Initializing habits...");
-//       await init();
-
-//       const { habits } = useHabitsStore.getState();
-//       console.log("Loaded habits:", habits);
-
-//       if (!habits || habits.length === 0) {
-//         await addHabit("Workout 💪");
-//         console.log("Seeded demo habit");
-//       }
-
-//       setLoading(false);
-//     })();
-//   }, [init, addHabit]);
-
-//   const initialized = useHabitsStore((s) => s.initialized);
-
-//   useEffect(() => {
-//     init();
-//   }, [init]);
-
-//   if (!initialized) return <p>Loading habits...</p>;
-
-//   if (loading) {
-//     return (
-//       <div className="flex items-center justify-center h-screen text-gray-500 text-lg">
-//         Loading habits...
-//       </div>
-//     );
-//   }
-
-//   const renderTab = () => {
-//     switch (tab) {
-//       case "daily":
-//         return <Daily />;
-//       case "weekly":
-//         return <Weekly />;
-//       case "monthly":
-//         return <Monthly />;
-//       case "stats":
-//         return <Stats />;
-//       default:
-//         return <Daily />;
-//     }
-//   };
-
-//   return (
-//     <div className="bg-gray-100 min-h-screen text-gray-900 flex flex-col">
-//       <Navbar onAddClick={() => setIsModalOpen(true)} />
-//       <div className="container mx-auto p-4">
-//         <Tabs tab={tab} setTab={setTab} />
-//         <div className="mt-4">{renderTab()}</div>
-//       </div>
-
-//       <AddHabitModal open={isModalOpen} onClose={() => setIsModalOpen(false)} />
-//     </div>
-
-//   );
-// }
-
-// export default App;
-
-import { useState, useEffect } from "react";
 import Navbar from "./components/Navbar";
 import Tabs from "./components/Tabs";
 import Daily from "./pages/Daily";
 import Weekly from "./pages/Weekly";
 import Monthly from "./pages/Monthly";
-import AddHabitModal from "./components/AddHabitModal";
-import { useHabitsStore } from "./store/habitsStore";
 import Stats from "./pages/Stats";
+import AddHabitForm from "./components/AddHabitForm"; 
 import XpToast from "./XpToast";
+
+import { useHabitsStore } from "./store/habitsStore";
 
 function App() {
   const [tab, setTab] = useState("daily");
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [loading, setLoading] = useState(true);
 
-  const init = useHabitsStore((s) => s.init);
-  const addHabit = useHabitsStore((s) => s.addHabit);
+  const { initialized, habits, init, addHabit, isLoading } = useHabitsStore();
 
+  // One-time initialization + demo data seeding
   useEffect(() => {
-    (async () => {
-      console.log("Initializing habits...");
-      await init();
+    const initializeApp = async () => {
+      if (initialized) return;
 
-      const { habits } = useHabitsStore.getState();
-      console.log("Loaded habits:", habits);
+      try {
+        await init();
 
-      if (!habits || habits.length === 0) {
-        await addHabit("Workout 💪");
-        console.log("Seeded demo habit");
+        // Seed demo data only if no habits exist
+        if (habits.length === 0) {
+          await addHabit({
+            name: "Workout 💪",
+            frequency: "daily",
+            xpPerTick: 25,
+            // add other defaults if needed
+          });
+          console.log("Seeded initial demo habit");
+        }
+      } catch (error) {
+        console.error("Failed to initialize habits:", error);
+        // Optional: show user-facing error toast here
       }
+    };
 
-      setLoading(false);
-    })();
-  }, [init, addHabit]);
+    initializeApp();
+  }, [init, addHabit, initialized, habits.length]);
 
-  const initialized = useHabitsStore((s) => s.initialized);
-
-  useEffect(() => {
-    init();
-  }, [init]);
-
-  if (!initialized) return <p>Loading habits...</p>;
-
-  if (loading) {
+  // Optional: handle any critical loading state from store
+  if (!initialized || isLoading) {
     return (
-      <div className="flex items-center justify-center h-screen text-gray-500 text-lg">
-        Loading habits...
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto mb-4"></div>
+          <p className="text-gray-600 font-medium">Loading your habits...</p>
+        </div>
       </div>
     );
   }
 
-  const renderTab = () => {
+  const renderContent = () => {
     switch (tab) {
       case "daily":
         return <Daily />;
@@ -148,14 +73,39 @@ function App() {
   };
 
   return (
-    <div className="bg-gray-100 min-h-screen text-gray-900 flex flex-col">
+    <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white flex flex-col">
       <Navbar onAddClick={() => setIsModalOpen(true)} />
-      <div className="container mx-auto p-4">
-        <Tabs tab={tab} setTab={setTab} />
-        <div className="mt-4">{renderTab()}</div>
-      </div>
-      <AddHabitModal open={isModalOpen} onClose={() => setIsModalOpen(false)} />
-      <XpToast /> {/* ✨ Add this line here — right before closing div */}
+
+      <main className="flex-1 container mx-auto px-4 py-6 md:px-6 lg:px-8 max-w-7xl">
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4 }}
+        >
+          <Tabs tab={tab} setTab={setTab} />
+        </motion.div>
+
+        <motion.div
+          key={tab} // animate content change when tab switches
+          initial={{ opacity: 0, x: -10 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.3 }}
+          className="mt-6"
+        >
+          {renderContent()}
+        </motion.div>
+      </main>
+
+      {/* Add Habit Modal */}
+      {isModalOpen && (
+        <AddHabitForm
+          onClose={() => setIsModalOpen(false)}
+          // You can pass extra props if needed (e.g. default frequency)
+        />
+      )}
+
+      {/* Global XP toast / notification system */}
+      <XpToast />
     </div>
   );
 }

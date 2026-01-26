@@ -1,128 +1,181 @@
-// import { useHabitsStore } from "../store/habitsStore";
-// import {
-//   LineChart,
-//   Line,
-//   XAxis,
-//   YAxis,
-//   CartesianGrid,
-//   Tooltip,
-//   ResponsiveContainer,
-// } from "recharts";
-// import {
-//   startOfMonth,
-//   endOfMonth,
-//   addDays,
-//   format,
-//   isSameDay,
-//   parseISO,
-// } from "date-fns";
-
-// export default function Monthly() {
-//   const { xpHistory } = useHabitsStore();
-
-//   const today = new Date();
-//   const start = startOfMonth(today);
-//   const end = endOfMonth(today);
-
-//   // Generate all days in this month
-//   const days = [];
-//   for (let d = start; d <= end; d = addDays(d, 1)) {
-//     const entry = xpHistory.find((x) => isSameDay(parseISO(x.date), d));
-//     days.push({
-//       date: format(d, "d MMM"),
-//       xp: entry ? entry.xp : 0,
-//     });
-//   }
-
-//   const totalXP = days.reduce((sum, d) => sum + d.xp, 0);
-
-//   return (
-//     <div className="p-6 space-y-6">
-//       <h1 className="text-2xl font-bold">📆 This Month</h1>
-
-//       <div className="bg-white rounded-xl shadow p-4 text-center">
-//         <p className="text-gray-500 text-sm">Total XP This Month</p>
-//         <p className="text-3xl font-bold text-green-600">{totalXP}</p>
-//       </div>
-
-//       <div className="bg-white rounded-xl shadow p-4 h-[300px]">
-//         <h2 className="text-lg font-semibold mb-2">XP Progression</h2>
-//         <ResponsiveContainer width="100%" height="100%">
-//           <LineChart data={days}>
-//             <CartesianGrid strokeDasharray="3 3" />
-//             <XAxis dataKey="date" />
-//             <YAxis />
-//             <Tooltip />
-//             <Line
-//               type="monotone"
-//               dataKey="xp"
-//               stroke="#3b82f6"
-//               strokeWidth={2}
-//             />
-//           </LineChart>
-//         </ResponsiveContainer>
-//       </div>
-//     </div>
-//   );
-// }
-
-// src/pages/Monthly.jsx
+import { useState, useMemo } from "react";
 import { useHabitsStore } from "../store/habitsStore";
-import { Flame } from "lucide-react";
+import { Flame, ChevronLeft, ChevronRight } from "lucide-react";
 import AnimatedCheckbox from "../components/AnimatedCheckbox";
-import { startOfMonth, endOfMonth, eachDayOfInterval, format } from "date-fns";
+import {
+  startOfMonth,
+  endOfMonth,
+  eachDayOfInterval,
+  format,
+  addMonths,
+  subMonths,
+  isSameDay,
+  isToday,
+  isPast,
+} from "date-fns";
 
 export default function Monthly() {
   const { habits, toggleHabit } = useHabitsStore();
-  const today = new Date();
 
-  // Get all dates in the current month
-  const monthStart = startOfMonth(today);
-  const monthEnd = endOfMonth(today);
-  const monthDates = eachDayOfInterval({
-    start: monthStart,
-    end: monthEnd,
-  }).map((d) => format(d, "yyyy-MM-dd"));
+  const [currentMonth, setCurrentMonth] = useState(new Date());
+
+  const monthStart = startOfMonth(currentMonth);
+  const monthEnd = endOfMonth(currentMonth);
+  const monthDates = useMemo(
+    () =>
+      eachDayOfInterval({ start: monthStart, end: monthEnd }).map((d) =>
+        format(d, "yyyy-MM-dd"),
+      ),
+    [currentMonth],
+  );
+
+  const monthName = format(currentMonth, "MMMM yyyy");
+
+  const goToPrevMonth = () => setCurrentMonth((prev) => subMonths(prev, 1));
+  const goToNextMonth = () => setCurrentMonth((prev) => addMonths(prev, 1));
+
+  const getMonthlyStreak = (habit) => {
+    // Simple streak: consecutive completed days from the end of the month backward
+    let streak = 0;
+    for (let i = monthDates.length - 1; i >= 0; i--) {
+      const date = monthDates[i];
+      if (habit.history?.[date]) {
+        streak++;
+      } else if (isPast(new Date(date))) {
+        break; // stop counting if we hit a missed past day
+      }
+    }
+    return streak;
+  };
 
   return (
-    <div className="space-y-4">
-      {habits.length === 0 && (
-        <p className="text-gray-500 mt-4">No habits yet. Add one!</p>
-      )}
-
-      {habits.map((habit) => (
-        <div
-          key={habit.id}
-          className="bg-yellow-50 rounded-lg shadow p-4 flex flex-col gap-2"
+    <div className="space-y-6 pb-10">
+      {/* Month Header with Navigation */}
+      <div className="flex items-center justify-between">
+        <button
+          onClick={goToPrevMonth}
+          className="p-2 rounded-full hover:bg-gray-100 transition-colors"
+          aria-label="Previous month"
         >
-          <div className="flex justify-between items-center">
-            <p className="font-medium text-yellow-800">{habit.name}</p>
-            <div className="flex items-center gap-1 text-yellow-600 text-sm">
-              <Flame size={16} />
-              <span>
-                {habit.streak || 0} month{habit.streak === 1 ? "" : "s"}
-              </span>
-            </div>
-          </div>
+          <ChevronLeft size={20} />
+        </button>
 
-          <div className="flex gap-2 overflow-x-auto mt-2">
-            {monthDates.map((date) => {
-              const completed = habit.history?.[date] || false;
-              return (
-                <div key={date} className="flex flex-col items-center">
-                  <span className="text-xs text-gray-500">
-                    {format(new Date(date), "d")}
-                  </span>
-                  <AnimatedCheckbox
-                    checked={completed}
-                    onChange={() => toggleHabit(habit.id, date)}
-                  />
-                </div>
-              );
-            })}
-          </div>
+        <h2 className="text-xl font-bold text-gray-900">{monthName}</h2>
+
+        <button
+          onClick={goToNextMonth}
+          className="p-2 rounded-full hover:bg-gray-100 transition-colors"
+          aria-label="Next month"
+        >
+          <ChevronRight size={20} />
+        </button>
+      </div>
+
+      {habits.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-12 text-center bg-gray-50 rounded-2xl border border-dashed border-gray-300">
+          <Flame className="w-10 h-10 text-gray-400 mb-3" />
+          <h3 className="text-lg font-medium text-gray-700">
+            No habits tracked yet
+          </h3>
+          <p className="text-sm text-gray-500 mt-2 max-w-md">
+            Add habits to start seeing your monthly progress calendar
+          </p>
         </div>
-      ))}
+      ) : (
+        <div className="space-y-5">
+          {habits.map((habit) => {
+            const monthlyStreak = getMonthlyStreak(habit);
+            const flameColor =
+              monthlyStreak >= 20
+                ? "text-red-600"
+                : monthlyStreak >= 10
+                  ? "text-orange-500"
+                  : monthlyStreak >= 5
+                    ? "text-amber-500"
+                    : "text-gray-400";
+
+            return (
+              <div
+                key={habit.id}
+                className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden"
+              >
+                {/* Habit Header */}
+                <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+                  <div>
+                    <p className="font-semibold text-gray-900">{habit.name}</p>
+                    {habit.category && (
+                      <span className="text-xs text-gray-500 mt-0.5 inline-block">
+                        {habit.category}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className={`flex items-center gap-1.5 ${flameColor}`}>
+                    <Flame size={18} className="fill-current" />
+                    <span className="font-medium text-sm">
+                      {monthlyStreak} month{monthlyStreak === 1 ? "" : "s"}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Calendar Grid */}
+                <div className="p-4 grid grid-cols-7 gap-2 text-center">
+                  {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map(
+                    (day) => (
+                      <div
+                        key={day}
+                        className="text-xs font-medium text-gray-500 py-1"
+                      >
+                        {day}
+                      </div>
+                    ),
+                  )}
+
+                  {/* Offset empty cells for correct weekday start */}
+                  {Array.from({ length: monthStart.getDay() || 7 }).map(
+                    (_, i) => (
+                      <div key={`offset-${i}`} />
+                    ),
+                  )}
+
+                  {monthDates.map((dateStr) => {
+                    const date = new Date(dateStr);
+                    const isCompleted = !!habit.history?.[dateStr];
+                    const isCurrentDay = isToday(date);
+                    const isFuture = date > new Date();
+
+                    return (
+                      <div
+                        key={dateStr}
+                        className={`flex flex-col items-center py-1 rounded-lg transition-all ${
+                          isCurrentDay
+                            ? "bg-indigo-50 ring-1 ring-indigo-200"
+                            : ""
+                        } ${isFuture ? "opacity-50 pointer-events-none" : ""}`}
+                      >
+                        <span
+                          className={`text-xs font-medium mb-1 ${
+                            isCurrentDay ? "text-indigo-700" : "text-gray-600"
+                          }`}
+                        >
+                          {format(date, "d")}
+                        </span>
+
+                        <AnimatedCheckbox
+                          checked={isCompleted}
+                          onChange={() => toggleHabit(habit.id, dateStr)}
+                          disabled={isFuture}
+                          size="sm"
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
