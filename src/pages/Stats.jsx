@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
+import { motion } from "framer-motion";
 import { useHabitsStore } from "../store/habitsStore";
 import {
   LineChart,
@@ -10,6 +11,7 @@ import {
   ResponsiveContainer,
   BarChart,
   Bar,
+  Legend,
 } from "recharts";
 import {
   parseISO,
@@ -19,212 +21,372 @@ import {
   addDays,
   addWeeks,
   addMonths,
+  isSameDay,
 } from "date-fns";
+import { TrendingUp, Award, Calendar, Zap } from "lucide-react";
 
 export default function Stats() {
-  const { xpHistory, habits, xp, level } = useHabitsStore();
-  const [activeTab, setActiveTab] = useState("combined"); // now including combined
+  const { xpHistory = [], habits = [], xp = 0, level = 1 } = useHabitsStore();
+  const [activeTab, setActiveTab] = useState("combined");
+
+  const tabs = [
+    { id: "combined", label: "All" },
+    { id: "daily", label: "Daily" },
+    { id: "weekly", label: "Weekly" },
+    { id: "monthly", label: "Monthly" },
+  ];
 
   const tabColors = {
-    daily: "#3b82f6",
-    weekly: "#10b981",
-    monthly: "#f59e0b",
+    daily: "#3b82f6", // blue
+    weekly: "#10b981", // emerald
+    monthly: "#f59e0b", // amber
+    combined: "#8b5cf6", // violet for combined
   };
 
-  // --- Helper to generate timeline ---
-  const generateTimeline = (frequency) => {
-    if (!xpHistory || xpHistory.length === 0) return [];
+  // Memoize sorted & parsed history
+  const sortedHistory = useMemo(() => {
+    return [...xpHistory]
+      .filter((item) => item.date && item.xp)
+      .map((item) => ({
+        ...item,
+        dateObj: parseISO(item.date),
+      }))
+      .sort((a, b) => a.dateObj - b.dateObj);
+  }, [xpHistory]);
 
-    const dates = xpHistory
-      .map((item) => parseISO(item.date))
-      .sort((a, b) => a - b);
+  if (sortedHistory.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-4">
+        <Zap className="w-16 h-16 text-gray-300 mb-4" />
+        <h2 className="text-2xl font-bold text-gray-800 mb-2">No data yet</h2>
+        <p className="text-gray-600 max-w-md">
+          Start completing habits to see your progress charts and statistics
+          appear here.
+        </p>
+      </div>
+    );
+  }
 
-    const first = dates[0];
-    const last = dates[dates.length - 1];
+  const firstDate = sortedHistory[0].dateObj;
+  const lastDate = sortedHistory[sortedHistory.length - 1].dateObj;
 
+  // Generate timeline keys based on frequency
+  const generateTimeline = (freq) => {
     const timeline = [];
+    let current =
+      freq === "daily"
+        ? firstDate
+        : freq === "weekly"
+          ? startOfWeek(firstDate, { weekStartsOn: 1 })
+          : startOfMonth(firstDate);
 
-    if (frequency === "daily") {
-      for (let d = first; d <= last; d = addDays(d, 1)) {
-        timeline.push(format(d, "MM/dd"));
-      }
-    } else if (frequency === "weekly") {
-      let d = startOfWeek(first, { weekStartsOn: 1 });
-      const end = startOfWeek(last, { weekStartsOn: 1 });
-      while (d <= end) {
-        const weekEnd = addDays(d, 6);
-        timeline.push(`${format(d, "MM/dd")}-${format(weekEnd, "MM/dd")}`);
-        d = addWeeks(d, 1);
-      }
-    } else if (frequency === "monthly") {
-      let d = startOfMonth(first);
-      const end = startOfMonth(last);
-      while (d <= end) {
-        timeline.push(format(d, "MMM yyyy"));
-        d = addMonths(d, 1);
+    const end =
+      freq === "daily"
+        ? lastDate
+        : freq === "weekly"
+          ? startOfWeek(lastDate, { weekStartsOn: 1 })
+          : startOfMonth(lastDate);
+
+    while (current <= end) {
+      if (freq === "daily") {
+        timeline.push(format(current, "MMM d"));
+        current = addDays(current, 1);
+      } else if (freq === "weekly") {
+        const weekEnd = addDays(current, 6);
+        timeline.push(
+          `${format(current, "MMM d")}-${format(weekEnd, "MMM d")}`,
+        );
+        current = addWeeks(current, 1);
+      } else {
+        timeline.push(format(current, "MMM yyyy"));
+        current = addMonths(current, 1);
       }
     }
-
     return timeline;
   };
 
-  // --- Prepare chart data for a single frequency ---
-  const prepareChartDataForFrequency = (frequency) => {
-    const timeline = generateTimeline(frequency);
+  // Aggregate XP by period
+  const prepareData = (freq) => {
+    const timeline = generateTimeline(freq);
     const dataMap = {};
 
-    xpHistory.forEach((item) => {
-      const habit = habits.find((h) => h.id === item.habitId);
-      if (!habit || habit.frequency !== frequency) return;
+    sortedHistory.forEach((entry) => {
+      const habit = habits.find((h) => h.id === entry.habitId);
+      if (!habit || habit.frequency !== freq) return;
 
       let key = "";
-      const dateObj = parseISO(item.date);
+      if (freq === "daily") key = format(entry.dateObj, "MMM d");
+      else if (freq === "weekly") {
+        const ws = startOfWeek(entry.dateObj, { weekStartsOn: 1 });
+        key = `${format(ws, "MMM d")}-${format(addDays(ws, 6), "MMM d")}`;
+      } else {
+        key = format(startOfMonth(entry.dateObj), "MMM yyyy");
+      }
 
-      if (frequency === "daily") key = format(dateObj, "MM/dd");
-      else if (frequency === "weekly") {
-        const weekStart = startOfWeek(dateObj, { weekStartsOn: 1 });
-        const weekEnd = addDays(weekStart, 6);
-        key = `${format(weekStart, "MM/dd")}-${format(weekEnd, "MM/dd")}`;
-      } else if (frequency === "monthly")
-        key = format(startOfMonth(dateObj), "MMM yyyy");
-
-      dataMap[key] = (dataMap[key] || 0) + item.xp;
+      dataMap[key] = (dataMap[key] || 0) + entry.xp;
     });
 
-    return timeline.map((date) => ({
-      date,
-      xp: dataMap[date] || 0,
+    return timeline.map((label) => ({
+      label,
+      xp: dataMap[label] || 0,
     }));
   };
 
-  // --- Combine daily, weekly, and monthly into one dataset ---
-  const chartData =
+  const dailyData = useMemo(
+    () => prepareData("daily"),
+    [sortedHistory, habits],
+  );
+  const weeklyData = useMemo(
+    () => prepareData("weekly"),
+    [sortedHistory, habits],
+  );
+  const monthlyData = useMemo(
+    () => prepareData("monthly"),
+    [sortedHistory, habits],
+  );
+
+  // Combined view preparation
+  const combinedData = useMemo(() => {
+    const allLabels = Array.from(
+      new Set([
+        ...dailyData.map((d) => d.label),
+        ...weeklyData.map((d) => d.label),
+        ...monthlyData.map((d) => d.label),
+      ]),
+    ).sort();
+
+    return allLabels.map((label) => ({
+      label,
+      daily: dailyData.find((d) => d.label === label)?.xp || 0,
+      weekly: weeklyData.find((d) => d.label === label)?.xp || 0,
+      monthly: monthlyData.find((d) => d.label === label)?.xp || 0,
+    }));
+  }, [dailyData, weeklyData, monthlyData]);
+
+  const activeData =
     activeTab === "combined"
-      ? (() => {
-          const daily = prepareChartDataForFrequency("daily");
-          const weekly = prepareChartDataForFrequency("weekly");
-          const monthly = prepareChartDataForFrequency("monthly");
+      ? combinedData
+      : activeTab === "daily"
+        ? dailyData
+        : activeTab === "weekly"
+          ? weeklyData
+          : monthlyData;
 
-          const allDates = Array.from(
-            new Set([
-              ...daily.map((d) => d.date),
-              ...weekly.map((d) => d.date),
-              ...monthly.map((d) => d.date),
-            ])
-          ).sort((a, b) => new Date(a) - new Date(b));
-
-          return allDates.map((date) => ({
-            date,
-            daily: daily.find((d) => d.date === date)?.xp || 0,
-            weekly: weekly.find((w) => w.date === date)?.xp || 0,
-            monthly: monthly.find((m) => m.date === date)?.xp || 0,
-          }));
-        })()
-      : prepareChartDataForFrequency(activeTab);
+  const currentColor = tabColors[activeTab] || "#8b5cf6";
 
   return (
-    <div className="p-6 space-y-8">
-      <h1 className="text-2xl font-bold">📊 Your Progress</h1>
+    <div className="space-y-8 pb-12 px-4 md:px-6 lg:px-8 max-w-7xl mx-auto">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
+          <TrendingUp className="w-8 h-8 text-indigo-600" />
+          Progress Dashboard
+        </h1>
+      </div>
 
-      {/* Summary */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-white rounded-xl shadow p-4 text-center">
-          <h2 className="text-sm text-gray-500">Current XP</h2>
-          <p className="text-2xl font-bold">{xp}</p>
-        </div>
-        <div className="bg-white rounded-xl shadow p-4 text-center">
-          <h2 className="text-sm text-gray-500">Level</h2>
-          <p className="text-2xl font-bold">{level}</p>
-        </div>
-        <div className="bg-white rounded-xl shadow p-4 text-center">
-          <h2 className="text-sm text-gray-500">Days Logged</h2>
-          <p className="text-2xl font-bold">{xpHistory.length}</p>
-        </div>
+      {/* Quick Stats Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 text-center"
+        >
+          <Zap className="w-6 h-6 mx-auto mb-2 text-indigo-600" />
+          <p className="text-sm text-gray-600">Total XP</p>
+          <p className="text-3xl font-bold text-indigo-700 mt-1">
+            {xp.toLocaleString()}
+          </p>
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+          className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 text-center"
+        >
+          <Award className="w-6 h-6 mx-auto mb-2 text-amber-600" />
+          <p className="text-sm text-gray-600">Level</p>
+          <p className="text-3xl font-bold text-amber-700 mt-1">Lv {level}</p>
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2 }}
+          className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 text-center"
+        >
+          <Calendar className="w-6 h-6 mx-auto mb-2 text-green-600" />
+          <p className="text-sm text-gray-600">Days Active</p>
+          <p className="text-3xl font-bold text-green-700 mt-1">
+            {xpHistory.length}
+          </p>
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.3 }}
+          className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 text-center"
+        >
+          <TrendingUp className="w-6 h-6 mx-auto mb-2 text-purple-600" />
+          <p className="text-sm text-gray-600">Habits Tracked</p>
+          <p className="text-3xl font-bold text-purple-700 mt-1">
+            {habits.length}
+          </p>
+        </motion.div>
       </div>
 
       {/* Tabs */}
-      <div className="md:flex md:gap-4 grid grid-cols-2 gap-2">
-        {["daily", "weekly", "monthly", "combined"].map((tab) => (
+      <div className="bg-gray-100/70 p-1.5 rounded-xl border border-gray-200 inline-flex">
+        {tabs.map((t) => (
           <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className="px-4 py-2 rounded-lg font-medium"
-            style={{
-              backgroundColor: activeTab === tab ? "#374151" : "#E5E7EB",
-              color: activeTab === tab ? "white" : "#374151",
-            }}
+            key={t.id}
+            onClick={() => setActiveTab(t.id)}
+            className={`px-5 py-2.5 text-sm font-medium rounded-lg transition-all duration-200 ${
+              activeTab === t.id
+                ? "bg-white shadow-sm text-gray-900"
+                : "text-gray-600 hover:text-gray-900 hover:bg-gray-50/80"
+            }`}
           >
-            {tab.charAt(0).toUpperCase() + tab.slice(1)}
+            {t.label}
           </button>
         ))}
       </div>
 
-      {/* Line Chart */}
-      <div className="bg-white rounded-xl shadow p-4 h-[300px]">
-        <h2 className="text-lg font-semibold mb-2">
-          XP Over Time —{" "}
-          {activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}
+      {/* Main Chart */}
+      <motion.div
+        initial={{ opacity: 0, scale: 0.98 }}
+        animate={{ opacity: 1, scale: 1 }}
+        className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 md:p-6 h-[400px]"
+      >
+        <h2 className="text-xl font-semibold mb-4 text-gray-800">
+          XP Progress —{" "}
+          {activeTab === "combined"
+            ? "All Frequencies"
+            : activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}
         </h2>
+
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={chartData}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="date" />
-            <YAxis />
-            <Tooltip />
-            {activeTab === "combined" ? (
-              <>
-                <Line
-                  type="monotone"
-                  dataKey="daily"
-                  stroke={tabColors.daily}
-                  strokeWidth={2}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="weekly"
-                  stroke={tabColors.weekly}
-                  strokeWidth={2}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="monthly"
-                  stroke={tabColors.monthly}
-                  strokeWidth={2}
-                />
-              </>
-            ) : (
+          {activeTab === "combined" ? (
+            <LineChart
+              data={activeData}
+              margin={{ top: 10, right: 30, left: 0, bottom: 20 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+              <XAxis
+                dataKey="label"
+                angle={-45}
+                textAnchor="end"
+                height={60}
+                tick={{ fontSize: 12 }}
+              />
+              <YAxis />
+              <Tooltip
+                contentStyle={{
+                  background: "white",
+                  borderRadius: "8px",
+                  border: "1px solid #e5e7eb",
+                  boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
+                }}
+              />
+              <Legend verticalAlign="top" height={36} />
+              <Line
+                type="monotone"
+                dataKey="daily"
+                stroke={tabColors.daily}
+                name="Daily"
+                strokeWidth={2.5}
+                dot={false}
+              />
+              <Line
+                type="monotone"
+                dataKey="weekly"
+                stroke={tabColors.weekly}
+                name="Weekly"
+                strokeWidth={2.5}
+                dot={false}
+              />
+              <Line
+                type="monotone"
+                dataKey="monthly"
+                stroke={tabColors.monthly}
+                name="Monthly"
+                strokeWidth={2.5}
+                dot={false}
+              />
+            </LineChart>
+          ) : (
+            <LineChart
+              data={activeData}
+              margin={{ top: 10, right: 30, left: 0, bottom: 20 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+              <XAxis
+                dataKey="label"
+                angle={-45}
+                textAnchor="end"
+                height={60}
+                tick={{ fontSize: 12 }}
+              />
+              <YAxis />
+              <Tooltip
+                contentStyle={{
+                  background: "white",
+                  borderRadius: "8px",
+                  border: "1px solid #e5e7eb",
+                  boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
+                }}
+              />
               <Line
                 type="monotone"
                 dataKey="xp"
-                stroke={tabColors[activeTab]}
-                strokeWidth={2}
+                stroke={currentColor}
+                strokeWidth={3}
+                dot={{ r: 4, strokeWidth: 2 }}
+                activeDot={{ r: 8 }}
               />
-            )}
-          </LineChart>
+            </LineChart>
+          )}
         </ResponsiveContainer>
-      </div>
+      </motion.div>
 
-      {/* Bar Chart */}
+      {/* Optional: Bar version for single frequency */}
       {activeTab !== "combined" && (
-        <div className="bg-white rounded-xl shadow p-4 h-[300px]">
-          <h2 className="text-lg font-semibold mb-2">
-            XP Over Time —{" "}
+        <motion.div
+          initial={{ opacity: 0, scale: 0.98 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 md:p-6 h-[400px]"
+        >
+          <h2 className="text-xl font-semibold mb-4 text-gray-800">
+            Weekly Breakdown —{" "}
             {activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}
           </h2>
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={chartData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="date" />
-              <YAxis />
-              <Tooltip />
-              <Bar
-                dataKey="xp"
-                fill={tabColors[activeTab]}
-                isAnimationActive={true}
+            <BarChart
+              data={activeData}
+              margin={{ top: 10, right: 30, left: 0, bottom: 20 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+              <XAxis
+                dataKey="label"
+                angle={-45}
+                textAnchor="end"
+                height={60}
+                tick={{ fontSize: 12 }}
               />
+              <YAxis />
+              <Tooltip
+                contentStyle={{
+                  background: "white",
+                  borderRadius: "8px",
+                  border: "1px solid #e5e7eb",
+                  boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
+                }}
+              />
+              <Bar dataKey="xp" fill={currentColor} radius={[8, 8, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
-        </div>
+        </motion.div>
       )}
     </div>
   );
